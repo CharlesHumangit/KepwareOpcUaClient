@@ -44,8 +44,17 @@ namespace KepwareOpcUaClient
                 {
                     ApplicationCertificate = new CertificateIdentifier { StoreType = "Directory", StorePath = "certificates", SubjectName = _configuration.ApplicationName },
                     TrustedPeerCertificates = new CertificateTrustList { StoreType = "Directory", StorePath = "certificates/trusted" },
+                    TrustedIssuerCertificates = new CertificateTrustList { StoreType = "Directory", StorePath = "certificates/issuers" },
                     RejectedCertificateStore = new CertificateTrustList { StoreType = "Directory", StorePath = "certificates/rejected" },
                     AutoAcceptUntrustedCertificates = true // FOR DEVELOPMENT ONLY - DO NOT USE IN PRODUCTION
+                };
+
+                // Client configuration
+                _configuration.ClientConfiguration = new ClientConfiguration
+                {
+                    DefaultSessionTimeout = 60000, // 60 seconds
+                    // You can add more client-specific settings here if needed,
+                    // e.g., MaxNotificationsPerPublish, DiscoveryUrls, etc.
                 };
 
                 // Add Trace and Log configuration (optional but good for debugging)
@@ -112,12 +121,14 @@ namespace KepwareOpcUaClient
                     _endPointConfiguration);
 
                 // Connect to the server using the ConfiguredEndpoint
-                _session = await Session.Connect(
+                _session = await Session.Create(
+                    _configuration,
                     configuredEndpoint,
+                    true,
                     "KepwareOpcUaClient", // Session name
+                    60000, // Session timeout in milliseconds
                     null, // UserIdentity (null for anonymous)
-                    null, // PreferredLocales
-                    60000); // Session timeout (milliseconds)
+                    null); // PreferredLocales
 
                 if (_session.Connected)
                 {
@@ -253,9 +264,39 @@ namespace KepwareOpcUaClient
                 expandingNode.Nodes.Clear(); // Clear the dummy node
 
                 ReferenceDescription reference = expandingNode.Tag as ReferenceDescription;
+                
+                NodeId nodeId = ExpandedNodeId.ToNodeId(reference.NodeId, _session.NamespaceUris);
                 if (reference != null)
                 {
-                    await BrowseNodes(reference.NodeId, expandingNode.Nodes);
+                    await BrowseNodes(nodeId, expandingNode.Nodes);
+                }
+            }
+        }
+
+        private void tvOpcNodes_AfterSelect(object sender, TreeViewEventArgs e)
+        {
+            if (e.Node != null && e.Node.Tag is ReferenceDescription reference)
+            {
+                if (reference.NodeClass == NodeClass.Variable || reference.NodeClass == NodeClass.Object)
+                {
+                    // Convert ExpandedNodeId to NodeId using the session's NamespaceUris
+                    _currentSelectedNodeId = ExpandedNodeId.ToNodeId(reference.NodeId, _session.NamespaceUris);
+
+                    // For display in the text boxes (still useful for user reference)
+                    txtReadTagPath.Text = _currentSelectedNodeId.ToString();
+                    txtWriteTagPath.Text = _currentSelectedNodeId.ToString();
+
+                    txtReadValue.Text = ""; // Clear previous read value
+                    txtWriteValue.Text = ""; // Clear previous write value
+                }
+                else
+                {
+                    // Clear the selected node ID if it's not a variable or object
+                    _currentSelectedNodeId = null;
+                    txtReadTagPath.Text = "";
+                    txtWriteTagPath.Text = "";
+                    txtReadValue.Text = "";
+                    txtWriteValue.Text = "";
                 }
             }
         }
